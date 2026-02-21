@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { usePresentationStore } from '../store/presentationStore'
 import { exportToPPT } from '../utils/pptExporter'
+import DesignPanel from './DesignPanel'
+import AIPanel from './AIPanel'
 
 export default function Toolbar() {
   const { 
@@ -9,6 +11,7 @@ export default function Toolbar() {
   } = usePresentationStore()
   const [showAI, setShowAI] = useState(false)
   const [showShapes, setShowShapes] = useState(false)
+  const [showDesign, setShowDesign] = useState(false)
 
   // 导出PPT
   const handleExport = () => {
