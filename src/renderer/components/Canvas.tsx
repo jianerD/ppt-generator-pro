@@ -1,7 +1,8 @@
-import { useRef, useState } from 'react'
+import { useState, useCallback } from 'react'
+import { Rnd } from 'react-rnd'
 import { usePresentationStore } from '../store/presentationStore'
 import { v4 as uuidv4 } from 'uuid'
-import type { SlideElement, TextElement, ChartElement } from '../../shared/types'
+import type { SlideElement, TextElement, ChartElement, ImageElement, ShapeElement } from '../../shared/types'
 import ChartElementComponent from './ChartElement'
 
 export default function Canvas() {
@@ -11,13 +12,11 @@ export default function Canvas() {
   } = usePresentationStore()
   
   const slide = presentation.slides[currentSlideIndex]
-  const canvasRef = useRef<HTMLDivElement>(null)
-  const [isDragging, setIsDragging] = useState(false)
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   // 处理画布点击
   const handleCanvasClick = (e: React.MouseEvent) => {
-    if (e.target === canvasRef.current) {
+    if ((e.target as HTMLElement).classList.contains('canvas-area')) {
       setSelectedElementId(null)
     }
   }
@@ -28,7 +27,7 @@ export default function Canvas() {
       id: uuidv4(),
       type: 'text',
       position: { x: 100, y: 100, width: 300, height: 60 },
-      style: { fontSize: 24, color: '#FFFFFF' },
+      style: { fontSize: 24, color: '#FFFFFF', textAlign: 'left' },
       content: '双击编辑文本'
     }
     addElement(currentSlideIndex, element)
@@ -54,52 +53,76 @@ export default function Canvas() {
     addElement(currentSlideIndex, element)
   }
 
-  // 处理元素拖拽
-  const handleElementMouseDown = (e: React.MouseEvent, elementId: string) => {
-    e.stopPropagation()
-    setSelectedElementId(elementId)
-    setIsDragging(true)
-    setDragStart({ x: e.clientX, y: e.clientY })
+  // 添加形状
+  const addShapeElement = (shapeType: 'rect' | 'circle' | 'triangle') => {
+    const element: ShapeElement = {
+      id: uuidv4(),
+      type: 'shape',
+      shapeType,
+      position: { x: 150, y: 150, width: 100, height: 100 },
+      style: {},
+      fill: '#38BDF8',
+      stroke: '#1D4ED8',
+      strokeWidth: 2
+    }
+    addElement(currentSlideIndex, element)
   }
 
-  // 处理拖拽
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging || !selectedElementId) return
-    
-    const dx = (e.clientX - dragStart.x) / (zoom / 100)
-    const dy = (e.clientY - dragStart.y) / (zoom / 100)
-    
-    const element = slide.elements.find(el => el.id === selectedElementId)
-    if (element) {
-      updateElement(currentSlideIndex, selectedElementId, {
-        position: {
-          ...element.position,
-          x: Math.max(0, element.position.x + dx),
-          y: Math.max(0, element.position.y + dy)
+  // 添加图片
+  const addImageElement = async () => {
+    try {
+      const result = await window.electron?.openImage()
+      if (!result?.canceled && result?.filePaths?.[0]) {
+        const element: ImageElement = {
+          id: uuidv4(),
+          type: 'image',
+          position: { x: 100, y: 100, width: 300, height: 200 },
+          style: {},
+          src: result.filePaths[0],
+          alt: '图片'
         }
-      })
-      setDragStart({ x: e.clientX, y: e.clientY })
+        addElement(currentSlideIndex, element)
+      }
+    } catch (error) {
+      console.error('Failed to add image:', error)
     }
   }
 
-  const handleMouseUp = () => {
-    setIsDragging(false)
-  }
+  // 元素大小/位置变化
+  const handleDragStop = useCallback((elementId: string, data: { x: number; y: number }) => {
+    updateElement(currentSlideIndex, elementId, {
+      position: {
+        x: data.x,
+        y: data.y,
+        width: 0, // 不改变宽度
+        height: 0 // 不改变高度
+      }
+    })
+  }, [currentSlideIndex, updateElement])
 
-  // 监听菜单插入事件
-  useState(() => {
-    const electron = window.electron
-    if (!electron) return
-    
-    electron.onMenuInsertText?.(() => addTextElement())
-    electron.onMenuInsertChart?.(() => addChartElement())
-  })
+  const handleResizeStop = useCallback((elementId: string, data: { width: number; height: number }) => {
+    const element = slide.elements.find(el => el.id === elementId)
+    if (element) {
+      updateElement(currentSlideIndex, elementId, {
+        position: {
+          ...element.position,
+          width: data.width,
+          height: data.height
+        }
+      })
+    }
+  }, [currentSlideIndex, slide.elements, updateElement])
+
+  // 文本编辑
+  const handleTextBlur = (elementId: string, content: string) => {
+    updateElement(currentSlideIndex, elementId, { content } as Partial<SlideElement>)
+    setEditingId(null)
+  }
 
   return (
     <div className="canvas-container" onClick={handleCanvasClick}>
       <div
-        ref={canvasRef}
-        className="relative bg-white shadow-2xl"
+        className="canvas-area relative bg-white shadow-2xl"
         style={{
           width: 960,
           height: 540,
@@ -107,72 +130,86 @@ export default function Canvas() {
           transformOrigin: 'center center',
           background: slide.background
         }}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
       >
         {/* 幻灯片元素 */}
         {slide.elements.map((element) => (
-          <div
+          <Rnd
             key={element.id}
-            className={`element ${element.id === selectedElementId ? 'selected' : ''}`}
-            style={{
-              left: element.position.x,
-              top: element.position.y,
-              width: element.position.width,
-              height: element.position.height,
-              zIndex: element.zIndex || 1
+            size={{ width: element.position.width, height: element.position.height }}
+            position={{ x: element.position.x, y: element.position.y }}
+            onDragStop={(e, d) => handleDragStop(element.id, { x: d.x, y: d.y })}
+            onResizeStop={(e, direction, ref, delta, position) => {
+              handleResizeStop(element.id, { 
+                width: parseInt(ref.style.width), 
+                height: parseInt(ref.style.height) 
+              })
             }}
-            onMouseDown={(e) => handleElementMouseDown(e, element.id)}
+            bounds="parent"
+            minWidth={50}
+            minHeight={30}
+            onClick={(e) => {
+              e.stopPropagation()
+              setSelectedElementId(element.id)
+            }}
+            style={{
+              zIndex: element.id === selectedElementId ? 100 : 1,
+            }}
+            enableResizing={element.id === selectedElementId ? {
+              top: true, right: true, bottom: true, left: true,
+              topRight: true, bottomRight: true, bottomLeft: true, topLeft: true
+            } : false}
           >
-            {element.type === 'text' && (
-              <div
-                style={{
-                  fontSize: element.style.fontSize,
-                  fontWeight: element.style.fontWeight,
-                  color: element.style.color,
-                  textAlign: element.style.textAlign,
-                  lineHeight: 1.5
-                }}
-                className="w-full h-full p-2 cursor-text"
-                contentEditable
-                suppressContentEditableWarning
-                onBlur={(e) => {
-                  updateElement(currentSlideIndex, element.id, {
-                    content: (e.target as HTMLDivElement).innerText
-                  })
-                }}
-              >
-                {(element as TextElement).content}
-              </div>
-            )}
-            
-            {element.type === 'chart' && (
-              <ChartElementComponent 
-                element={element as ChartElement}
-                slideIndex={currentSlideIndex}
-              />
-            )}
-            
-            {element.type === 'image' && (
-              <img
-                src={(element as any).src}
-                alt={(element as any).alt || ''}
-                className="w-full h-full object-cover"
-                draggable={false}
-              />
-            )}
-            
-            {element.type === 'shape' && (
-              <div
-                className="w-full h-full"
-                style={{
-                  backgroundColor: (element as any).fill || '#38BDF8',
-                  borderRadius: (element as any).shapeType === 'circle' ? '50%' : 0
-                }}
-              />
-            )}
-          </div>
+            <div 
+              className={`w-full h-full ${element.id === selectedElementId ? 'ring-2 ring-blue-500' : ''}`}
+            >
+              {element.type === 'text' && (
+                <div
+                  style={{
+                    fontSize: (element as TextElement).style.fontSize,
+                    fontWeight: (element as TextElement).style.fontWeight,
+                    color: (element as TextElement).style.color,
+                    textAlign: (element as TextElement).style.textAlign,
+                    lineHeight: 1.5,
+                  }}
+                  className="w-full h-full p-2 cursor-text"
+                  contentEditable={element.id === editingId}
+                  suppressContentEditableWarning
+                  onDoubleClick={() => setEditingId(element.id)}
+                  onBlur={(e) => handleTextBlur(element.id, e.currentTarget.innerText)}
+                >
+                  {(element as TextElement).content}
+                </div>
+              )}
+              
+              {element.type === 'chart' && (
+                <ChartElementComponent 
+                  element={element as ChartElement}
+                  slideIndex={currentSlideIndex}
+                />
+              )}
+              
+              {element.type === 'image' && (
+                <img
+                  src={(element as ImageElement).src}
+                  alt={(element as ImageElement).alt || ''}
+                  className="w-full h-full object-cover pointer-events-none"
+                  draggable={false}
+                />
+              )}
+              
+              {element.type === 'shape' && (
+                <div
+                  className="w-full h-full"
+                  style={{
+                    backgroundColor: (element as ShapeElement).fill || '#38BDF8',
+                    borderRadius: (element as ShapeElement).shapeType === 'circle' ? '50%' : 
+                                  (element as ShapeElement).shapeType === 'triangle' ? '0' : '4px',
+                    border: `${(element as ShapeElement).strokeWidth || 2}px solid ${(element as ShapeElement).stroke || '#1D4ED8'}`
+                  }}
+                />
+              )}
+            </div>
+          </Rnd>
         ))}
         
         {/* 空状态提示 */}
@@ -183,8 +220,14 @@ export default function Canvas() {
               <button onClick={addTextElement} className="btn btn-primary mr-2">
                 + 文本
               </button>
-              <button onClick={addChartElement} className="btn btn-secondary">
+              <button onClick={addChartElement} className="btn btn-secondary mr-2">
                 + 图表
+              </button>
+              <button onClick={() => addShapeElement('rect')} className="btn btn-secondary mr-2">
+                + 形状
+              </button>
+              <button onClick={addImageElement} className="btn btn-secondary">
+                + 图片
               </button>
             </div>
           </div>

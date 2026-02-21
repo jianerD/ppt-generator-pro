@@ -10,17 +10,23 @@
     "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "electron:build": "vite build && electron-builder"
   },
-  "keywords": ["ppt", "presentation", "electron", "react"],
+  "keywords": [
+    "ppt",
+    "presentation",
+    "electron",
+    "react"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
     "echarts": "^5.4.3",
     "echarts-for-react": "^3.0.2",
     "pptxgenjs": "^3.12.0",
-    "zustand": "^4.4.7",
-    "uuid": "^9.0.1"
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-rnd": "^10.5.2",
+    "uuid": "^9.0.1",
+    "zustand": "^4.4.7"
   },
   "devDependencies": {
     "@types/react": "^18.2.43",
@@ -50,11 +56,15 @@
       "dist-electron/**/*"
     ],
     "win": {
-      "target": ["nsis"],
+      "target": [
+        "nsis"
+      ],
       "icon": "resources/icon.ico"
     },
     "mac": {
-      "target": ["dmg"],
+      "target": [
+        "dmg"
+      ],
       "icon": "resources/icon.icns"
     }
   }
